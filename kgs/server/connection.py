@@ -3,7 +3,6 @@ import time
 import requests
 
 from .messages import *
-import kgs.types.user
 
 
 class KgsConnection:
@@ -22,7 +21,6 @@ class KgsConnection:
         self._cookies = None
         self._keep_alive = True
 
-        self._formatter = MessageFormatter()
         self._message_factory = MessageFactory()
 
         self.init_sequence()
@@ -51,7 +49,7 @@ class KgsConnection:
                 for index, message in enumerate(kgs_response.messages):
                     if type(message) is HelloMessage:
                         hello_received = True
-                        del kgs_response.messages[index]
+                        del kgs_response.messages[index]  # No need to leave that message in the queue
                         break
             else:
                 # TODO : handle connection errors with more details, logging, etc.
@@ -180,7 +178,7 @@ class KgsConnection:
         if not self._is_processable(message.message_type):
             return
 
-        formatted_message = self._formatter.format_message(message)
+        formatted_message = MessageFormatter.format_message(message)
 
         if message.action == 'POST':
             headers = {"content-type": "application/json;charset=UTF-8"}
@@ -224,16 +222,3 @@ class KgsResponse:
 
     def create_message(self, message_dict):
         return self._message_factory.create_message(message_dict)
-
-
-# TODO : Running as standalone to test stuff, remove this ASAP
-if __name__ == '__main__':
-    # TODO : create setting for actual URL
-    bot = kgs.types.user.User()
-
-    connection = KgsConnection('http://www.gokgs.com/json/', bot)
-
-    while connection.loop():
-        pass
-
-    connection.close()  # kthxbye

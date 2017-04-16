@@ -1,4 +1,4 @@
-class User:
+class KgsUser:
     """
     A KGS user account.
     """
@@ -21,13 +21,15 @@ class User:
     )
 
     AUTH_LEVELS = (
-        'normal',  # default
+        'normal',
         'robot_ranked',
         'teacher',
         'jr_admin',
         'sr_admin',
         'super_admin',
     )
+
+    DEFAULT_AUTH_LEVEL = 'normal'
 
     def __init__(self, name, flags, rank='', auth_level='normal'):
         """
@@ -68,7 +70,7 @@ class User:
             raise ValueError('Invalid auth level ' + auth_level)
 
 
-class Friend(User):
+class Friend(KgsUser):
     FRIEND_TYPES = (
         'buddy',
         'censored',
@@ -77,6 +79,6 @@ class Friend(User):
     )
 
     def __init__(self, friend_type, name, flags, rank='', auth_level='normal', notes=''):
-        super(User).__init__(name, flags, rank, auth_level)
+        super(KgsUser).__init__(name, flags, rank, auth_level)
         self.friend_type = friend_type
         self.notes = notes

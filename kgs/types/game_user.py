@@ -1,4 +1,4 @@
-from .user import User
+from .kgsuser import KgsUser
 
 
 class GameUser:

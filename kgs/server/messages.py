@@ -1,5 +1,5 @@
-from kgs.types.user import Friend, User
-from kgs.types.room_desc import RoomDesc
+from kgs.types.kgsuser import Friend, KgsUser
+from kgs.types.room import Room
 
 
 def _list_object_properties(obj):
@@ -25,6 +25,9 @@ class Message:
     supported_types = (
         'LOGIN',
         'HELLO',
+        'JOIN_REQUEST',
+        'ROOM_DESC',
+        'ROOM_JOIN',
     )
 
     def __init__(self, message_type, action):
@@ -58,6 +61,15 @@ class PostMessage(Message):
         No post-load action to perform since we're posting our own data.
         """
         pass
+
+
+class ChannelMessage:
+    """
+    Channel message (ie. one that requires a channelId field) POST request.
+    """
+
+    def __init__(self, channel_id):
+        self._channel_id = channel_id
 
 
 class GetMessage(Message):
@@ -102,7 +114,8 @@ class HelloMessage(GetMessage):
 
 class LoginSuccessMessage(GetMessage):
     """
-    Login confirmation. We may now receive further messages.
+    Login confirmation. We may now receive further messages. This message's payload contains much of the server's state:
+    rooms, users, room categories, etc.
     """
     def __init__(self):
         super(GetMessage).__init__('LOGIN_SUCCESS')
@@ -113,22 +126,49 @@ class LoginSuccessMessage(GetMessage):
         self.rooms = list()
 
     def post_load(self):
+        """
+        Called when the object has been built with raw data. 
+        """
         self._load_you()
         self._load_friends()
+        self._load_room_categories()
+        self._load_rooms()
 
+    # TODO : consider whether these methods would be best left out of the message object itself or if they're relevant
     def _load_you(self):
-        you = self.you
-        self.you = User(you['name'], you['rank'], you['flags'], you['authLevel'])
+        """
+        Convert "you" raw data into a User object
+        """
+
+        # Optional. Regular users don't seem to have the authLevel field
+        if 'auth_level' in self.you:
+            auth_level = self.you['authLevel']
+        else:
+            auth_level = KgsUser.DEFAULT_AUTH_LEVEL
+
+        self.you = KgsUser(self.you['name'], self.you['flags'], self.you['rank'], auth_level)
 
     def _load_friends(self):
+        """
+        Load the user's friend list. Friends are useful for a bot since it makes it easy to track league members, for
+        instance.
+        """
         friends = self.friends
         self.friends = list()
+
+        # Friends field is optional
+        if friends is None:
+            return
 
         for friend in friends:
             self.friends.append(Friend(friend['friend_type'], friend['name'], friend['rank'],
                                        friend['flags'], friend['authLevel']))
 
     def _load_room_categories(self):
+        """
+        From the docs : An object that maps room categories to the channel that has the master room list for that
+        category.
+        """
         room_cats = self.room_category_channel_id
         self.room_category_channel_id = dict()
 
@@ -136,10 +176,15 @@ class LoginSuccessMessage(GetMessage):
             self.room_category_channel_id[room_cat['category']] = room_cat['channelId']
 
     def _load_rooms(self):
+        """
+        A list of all rooms on the server, from a pair of channel ID and category.
+        """
         rooms = self.rooms
         self.rooms = dict()
 
         for room in rooms:
+            channel_id = room['channelId']
+            self.rooms[channel_id] = Room(channel_id)
 
 
 class LoginFailedBadPasswordMessage(GetMessage):
@@ -158,12 +203,45 @@ class LogoutPostMessage(PostMessage):
         pass
 
 
-class RoomJoinMessage(GetMessage):
+class JoinRequestMessage(ChannelMessage, PostMessage):
+    """
+    Message sent to request to join a channel. Answered by the ROOM_JOIN message (see JoinMessage).
+    """
+
+    def __init__(self, channel_id):
+        super(ChannelMessage).__init__(channel_id=channel_id)
+        super(PostMessage).__init__('JOIN_REQUEST')
+
+
+class JoinMessage(GetMessage):
     """
     Message received when you join a room - including right after login.
     """
     def __init__(self):
         super(GetMessage).__init__('ROOM_JOIN')
+
+
+class RoomDescriptionMessage(GetMessage, ChannelMessage):
+    """
+    Get a room's description and its owners, optionally.
+    """
+    def __int__(self, channel_id):
+        super(GetMessage).__init__('ROOM_DESC')
+        super(ChannelMessage).__init__(channel_id)
+
+    def post_load(self):
+        pass
+
+
+class RoomNamesMessage(GetMessage):
+    """
+    Message that contains the description of a set of rooms.
+    """
+    def __init__(self, message_type):
+        super(GetMessage).__init__(message_type)
+
+    def post_load(self):
+        pass
 
 
 class WakeUpMessage(PostMessage):
@@ -179,7 +257,9 @@ class MessageFormatter:
     Formats a message to send to the web service which acts as a gateway to KGS.
     """
 
-    def format_message(self, message):
+    @staticmethod
+    def format_message(message):
+        # TODO : ensure ChannelMessage objects get sent with their channel ID
         props = _list_object_properties(message)
 
         # Strip the beginning underscore and set the actual attribute value
@@ -194,7 +274,11 @@ class MessageFactory:
     # Mapping of 'type' value in KGS message to their related Message subclass
     TYPE_TO_CLASS = {
         'HELLO': HelloMessage,
+        'JOIN_REQUEST': JoinRequestMessage,
         'LOGIN_SUCCESS': LoginSuccessMessage,
+        'ROOM_DESC': RoomDescriptionMessage,
+        'ROOM_NAMES': RoomNamesMessage,
+        'WAKE_UP': WakeUpMessage,
     }
 
     def create_message(self, data):
