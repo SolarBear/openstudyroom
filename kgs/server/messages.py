@@ -1,5 +1,5 @@
-from kgs.types.kgsuser import Friend, KgsUser
-from kgs.types.room import Room
+from kgs.data.kgsuser import Friend, KgsUser
+from kgs.data.room import Room
 
 
 def _list_object_properties(obj):
@@ -10,10 +10,19 @@ def _list_object_properties(obj):
     """
     return filter(
         lambda a:
-        not a.startswith('__')
+        not a.startswith('_')
         and a not in ['_decl_class_registry', '_sa_instance_state', '_sa_class_manager', 'metadata']
         and not callable(getattr(obj, a)),
         dir(obj))
+
+# List of supported message types
+SUPPORTED_TYPES = (
+    'LOGIN',
+    'HELLO',
+    'JOIN_REQUEST',
+    'ROOM_DESC',
+    'ROOM_JOIN',
+)
 
 
 class Message:
@@ -21,22 +30,13 @@ class Message:
     Abstract data class for the message to be send to KGS, please subclass.
     """
 
-    # List of support message types
-    supported_types = (
-        'LOGIN',
-        'HELLO',
-        'JOIN_REQUEST',
-        'ROOM_DESC',
-        'ROOM_JOIN',
-    )
-
-    def __init__(self, message_type, action):
+    def __init__(self, type, action):
         """
         Constructor.
-        :param message_type: Message name (eg. LOGIN, CHAT, SET_PASSWORD, etc.)
+        :param type: Message name (eg. LOGIN, CHAT, SET_PASSWORD, etc.)
         :param action: HTTP action (GET or POST)
         """
-        self.message_type = message_type
+        self.type = type
         self.action = action
 
     def post_load(self):
@@ -53,8 +53,8 @@ class PostMessage(Message):
     Message sent as a POST request.
     """
 
-    def __init__(self, message_type):
-        super(Message).__init__(message_type, 'POST')
+    def __init__(self, type):
+        super().__init__(type, 'POST')
 
     def post_load(self):
         """
@@ -77,8 +77,8 @@ class GetMessage(Message):
     Message sent as a GET request.
     """
 
-    def __init__(self, message_type):
-        super(Message).__init__(message_type, 'GET')
+    def __init__(self, type):
+        super().__init__(type, 'GET')
 
     def post_load(self):
         """
@@ -86,7 +86,25 @@ class GetMessage(Message):
         objects.
         :return:
         """
-        super(Message).post_load()
+        super().post_load()
+
+
+class JoinRequestMessage(ChannelMessage, PostMessage):
+    """
+    Message sent to request to join a channel. Answered by the ROOM_JOIN message (see JoinMessage).
+    """
+
+    def __init__(self, channel_id):
+        super(ChannelMessage).__init__(channel_id=channel_id)
+        super(PostMessage).__init__('JOIN_REQUEST')
+
+
+class JoinMessage(GetMessage):
+    """
+    Message received when you join a room - including right after login.
+    """
+    def __init__(self):
+        super(GetMessage).__init__('ROOM_JOIN')
 
 
 class LoginMessage(PostMessage):
@@ -94,7 +112,7 @@ class LoginMessage(PostMessage):
     Request for login.
     """
     def __init__(self, name, password, locale='en_US'):
-        super(PostMessage).__init__('LOGIN')
+        super().__init__('LOGIN')
         self.name = name
         self.password = password
         self.locale = locale
@@ -105,7 +123,7 @@ class HelloMessage(GetMessage):
     Very first message the server sends when try connecting.
     """
     def __init__(self):
-        super(GetMessage).__init__('HELLO')
+        super().__init__('HELLO')
         self.versionMajor = ''
         self.versionMinor = ''
         self.versionBugfix = ''
@@ -118,7 +136,7 @@ class LoginSuccessMessage(GetMessage):
     rooms, users, room categories, etc.
     """
     def __init__(self):
-        super(GetMessage).__init__('LOGIN_SUCCESS')
+        super().__init__('LOGIN_SUCCESS')
         self.you = None
         self.friends = list()
         # self.subscriptions = list() TODO
@@ -189,7 +207,7 @@ class LoginSuccessMessage(GetMessage):
 
 class LoginFailedBadPasswordMessage(GetMessage):
     def __init__(self):
-        super(GetMessage).__init__('LOGIN_FAILED_BAD_PASSWORD')
+        super().__init__('LOGIN_FAILED_BAD_PASSWORD')
 
 
 class LogoutPostMessage(PostMessage):
@@ -197,28 +215,10 @@ class LogoutPostMessage(PostMessage):
     LOGOUT message. Could be a POST or GET one
     """
     def __init__(self):
-        super(PostMessage).__init__('LOGOUT')
+        super().__init__('LOGOUT')
 
     def post_load(self):
         pass
-
-
-class JoinRequestMessage(ChannelMessage, PostMessage):
-    """
-    Message sent to request to join a channel. Answered by the ROOM_JOIN message (see JoinMessage).
-    """
-
-    def __init__(self, channel_id):
-        super(ChannelMessage).__init__(channel_id=channel_id)
-        super(PostMessage).__init__('JOIN_REQUEST')
-
-
-class JoinMessage(GetMessage):
-    """
-    Message received when you join a room - including right after login.
-    """
-    def __init__(self):
-        super(GetMessage).__init__('ROOM_JOIN')
 
 
 class RoomDescriptionMessage(GetMessage, ChannelMessage):
@@ -237,8 +237,8 @@ class RoomNamesMessage(GetMessage):
     """
     Message that contains the description of a set of rooms.
     """
-    def __init__(self, message_type):
-        super(GetMessage).__init__(message_type)
+    def __init__(self, type):
+        super(GetMessage).__init__(type)
 
     def post_load(self):
         pass
@@ -261,9 +261,10 @@ class MessageFormatter:
     def format_message(message):
         # TODO : ensure ChannelMessage objects get sent with their channel ID
         props = _list_object_properties(message)
+        obj = {k: message.__getattribute__(k) for k in props}
+        del obj['action']
 
-        # Strip the beginning underscore and set the actual attribute value
-        return {k: message.__getattribute__(k) for k in props}
+        return obj
 
 
 class MessageFactory:

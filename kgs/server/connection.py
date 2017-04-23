@@ -1,4 +1,3 @@
-import json
 import time
 import requests
 
@@ -36,6 +35,9 @@ class KgsConnection:
         """
 
         login_response = self._send_message(LoginMessage(self._username, self._password))
+
+        if not login_response.ok:
+            raise ConnectionError(login_response.content)
 
         self._cookies = login_response.cookies  # NOM NOM NOM
         hello_received = False
@@ -135,7 +137,7 @@ class KgsConnection:
             raise ValueError("Callback must be a callable")
         elif not isinstance(message_type, str):
             raise ValueError("Message type must be a string")
-        elif message_type not in Message.supported_types:
+        elif message_type not in SUPPORTED_TYPES:
             raise ValueError("Message type is not supported, your pull requests are welcome")
 
         # Message isn't processable yet, add it to the dict of messages
@@ -171,12 +173,14 @@ class KgsConnection:
         :return: HttpResponse
         """
 
-        if message is not Message:
-            raise ValueError("Not a Message object")
+        # TODO fix this...
+        # if isinstance(message, Message):
+        #     raise ValueError("Not a Message object")
 
+        # TODO really? even for POST messages ? I don't think so.
         # Why would you perform a callback that will not be processed?
-        if not self._is_processable(message.message_type):
-            return
+        # if not self._is_processable(message.message_type):
+        #     return
 
         formatted_message = MessageFormatter.format_message(message)
 
